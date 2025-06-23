@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Auth App</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>AuthApp</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	
+	<!-- Supported Interface Orientations -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	
+	<!-- Performance and UI Settings -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	
+	<!-- Network Security Configuration -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSExceptionMinimumTLSVersion</key>
+				<string>TLSv1.0</string>
+				<key>NSExceptionRequiresForwardSecrecy</key>
+				<false/>
+			</dict>
+			<key>10.0.2.2</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSExceptionMinimumTLSVersion</key>
+				<string>TLSv1.0</string>
+				<key>NSExceptionRequiresForwardSecrecy</key>
+				<false/>
+			</dict>
+		</dict>
+	</dict>
+	
+	<!-- URL Schemes for Deep Linking and Google Sign-In -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<!-- Google Sign-In URL Scheme -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>google-sign-in</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- Your actual reversed client ID -->
+				<string>com.googleusercontent.apps.397841208065-r4fkpq14e901mg92nr8ou72p8rbe0543</string>
+			</array>
+		</dict>
+		
+		<!-- Custom URL Scheme for Email Verification and Password Reset -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>auth-app-deep-link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>authapp</string>
+				<string>https</string>
+			</array>
+		</dict>
+		
+		<!-- Bundle Identifier URL Scheme -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>bundle-id</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			</array>
+		</dict>
+	</array>
+	
+	<!-- Queries for External Apps -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>http</string>
+		<string>googlegmail</string>
+		<string>googlemail</string>
+		<string>mailto</string>
+	</array>
+	
+	<!-- Camera and Photo Library Permissions (for future profile pictures) -->
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to camera to take profile pictures.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to photo library to select profile pictures.</string>
+	
+	<!-- Face ID / Touch ID Permission (for biometric authentication) -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to authenticate securely and access your account.</string>
+	
+	<!-- Location Permission (if needed for future features) -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app may use location for enhanced security features.</string>
+	
+	<!-- Contacts Permission (if implementing contact-based features) -->
+	<key>NSContactsUsageDescription</key>
+	<string>This app needs access to contacts to help you connect with friends.</string>
+	
+	<!-- Background App Refresh -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>background-fetch</string>
+		<string>remote-notification</string>
+	</array>
+	
+	<!-- Status Bar Style -->
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+	
+	<!-- Prevent App from being hidden -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.social-networking</string>
+	
+	<!-- Minimum iOS Version -->
+	<key>MinimumOSVersion</key>
+	<string>12.0</string>
+	
+	<!-- Flutter Configuration -->
+	<key>io.flutter.embedded_views_preview</key>
+	<true/>
+	
+	<!-- Disable App Store Connect Test Flight feedback -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>

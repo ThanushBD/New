@@ -4,10 +4,18 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user.dart';
 import '../utils/constants.dart';
 import 'storage_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:html' as html;
+import 'package:google_sign_in_web/google_sign_in_web.dart';
+import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
 
 class AuthService {
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: Constants.googleClientId,
+    clientId: kIsWeb ? Constants.googleClientId : null,
+    scopes: [
+      'email',
+      'profile',
+    ],
   );
 
   static Future<Map<String, dynamic>> register({
@@ -76,18 +84,27 @@ class AuthService {
 
   static Future<Map<String, dynamic>> signInWithGoogle() async {
     try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      GoogleSignInAccount? googleUser;
+      if (kIsWeb) {
+        // Try silent sign-in first
+        googleUser = await _googleSignIn.signInSilently();
+      } else {
+        googleUser = await _googleSignIn.signIn();
+      }
       if (googleUser == null) {
         return {'success': false, 'message': 'Google sign-in cancelled'};
       }
 
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      
+      final idToken = googleAuth.idToken;
+      if (idToken == null) {
+        return {'success': false, 'message': 'Google sign-in failed: No idToken received.'};
+      }
       final response = await http.post(
         Uri.parse(Constants.googleAuthEndpoint),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'idToken': googleAuth.idToken,
+          'idToken': idToken,
         }),
       );
 
@@ -181,5 +198,9 @@ class AuthService {
     } catch (e) {
       return {'success': false, 'message': 'Network error. Please try again.'};
     }
+  }
+
+  static Future<GoogleSignInAccount?> signInSilently() async {
+    return await _googleSignIn.signInSilently();
   }
 }

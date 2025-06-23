@@ -1,9 +1,14 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 class Constants {
   // ============== API CONFIGURATION ==============
   
   // Base URL for different environments
+  static final String baseUrl = kIsWeb
+      ? 'http://localhost:3000'
+      : 'http://10.0.2.2:3000';
   // For Android Emulator
-  static const String baseUrl = 'http://10.0.2.2:3000';
+  // static const String baseUrl = 'http://10.0.2.2:3000';
   // For iOS Simulator
   // static const String baseUrl = 'http://localhost:3000';
   // For Physical Device (replace with your computer's IP)
@@ -15,22 +20,22 @@ class Constants {
   static const String apiVersion = '/api';
   
   // Authentication endpoints
-  static const String loginEndpoint = '$baseUrl$apiVersion/auth/login';
-  static const String registerEndpoint = '$baseUrl$apiVersion/auth/register';
-  static const String profileEndpoint = '$baseUrl$apiVersion/auth/profile';
-  static const String forgotPasswordEndpoint = '$baseUrl$apiVersion/auth/forgot-password';
-  static const String resetPasswordEndpoint = '$baseUrl$apiVersion/auth/reset-password';
-  static const String googleAuthEndpoint = '$baseUrl$apiVersion/auth/google';
-  static const String verifyEmailEndpoint = '$baseUrl$apiVersion/auth/verify-email';
+  static final String loginEndpoint = '$baseUrl$apiVersion/auth/login';
+  static final String registerEndpoint = '$baseUrl$apiVersion/auth/register';
+  static final String profileEndpoint = '$baseUrl$apiVersion/auth/profile';
+  static final String forgotPasswordEndpoint = '$baseUrl$apiVersion/auth/forgot-password';
+  static final String resetPasswordEndpoint = '$baseUrl$apiVersion/auth/reset-password';
+  static final String googleAuthEndpoint = '$baseUrl$apiVersion/auth/google';
+  static final String verifyEmailEndpoint = '$baseUrl$apiVersion/auth/verify-email';
   
   // Other endpoints
-  static const String tasksEndpoint = '$baseUrl$apiVersion/tasks';
-  static const String timesheetEndpoint = '$baseUrl$apiVersion/timesheet';
+  static final String tasksEndpoint = '$baseUrl$apiVersion/tasks';
+  static final String timesheetEndpoint = '$baseUrl$apiVersion/timesheet';
   
   // ============== EXTERNAL SERVICE CONFIGURATION ==============
   
   // Google Sign-In (Use your actual client ID here)
-  static const String googleClientId = '397841208065-r4fkpq14e901mg92nr8ou72p8rbe0543.apps.googleusercontent.com';
+  static const String googleClientId = '397841208065-sm2fkc4ork0rmk9pc2ri2pee4aq6lcog.apps.googleusercontent.com';
   
   // ============== STORAGE KEYS ==============
   

@@ -657,7 +657,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
                 SizedBox(height: 16),
-                ...pendingTasks.map((task) => _buildTaskCard(task)).toList(),
+                ...pendingTasks.map((task) => _buildTaskCard(task)),
                 SizedBox(height: 24),
               ],
 
@@ -672,7 +672,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
                 SizedBox(height: 16),
-                ...completedTasks.map((task) => _buildTaskCard(task)).toList(),
+                ...completedTasks.map((task) => _buildTaskCard(task)),
               ],
 
               if (_tasks.isEmpty)
@@ -992,7 +992,7 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             ),
             SizedBox(height: 16),
-            ...recentTasks.map((task) => _buildTaskListItem(task)).toList(),
+            ...recentTasks.map((task) => _buildTaskListItem(task)),
           ],
         ),
       ),
@@ -1161,7 +1161,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ],
                 ),
-              )).toList(),
+              )),
             ] else
               Text(
                 'No time entries for today',
@@ -1771,7 +1771,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ],
               ),
-            )).toList(),
+            )),
           ] else
             Text(
               'No time entries yet',

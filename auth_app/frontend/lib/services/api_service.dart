@@ -2,13 +2,12 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import '../utils/constants.dart';
-import '../models/user.dart';
 import '../models/task.dart';
 import '../models/timesheet.dart';
 import 'storage_service.dart';
 
 class ApiService {
-  static const String baseUrl = Constants.baseUrl;
+  static final String baseUrl = Constants.baseUrl;
   static const Duration timeout = Duration(seconds: 30);
 
   // Helper method to get headers with auth token

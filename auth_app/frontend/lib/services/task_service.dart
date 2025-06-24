@@ -5,43 +5,11 @@ import '../models/user.dart';
 import '../models/task.dart';
 import '../models/timesheet.dart';
 import '../models/task_creation_data.dart';
+import '../models/notification.dart';
 
 // Assuming these services exist and are set up.
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
-
-// Place TaskNotification at the top-level, outside of TaskService.
-class TaskNotification {
-  final String id;
-  final String taskId;
-  final String type;
-  final String title;
-  final String message;
-  final bool isRead;
-  final DateTime createdAt;
-
-  TaskNotification({
-    required this.id,
-    required this.taskId,
-    required this.type,
-    required this.title,
-    required this.message,
-    required this.isRead,
-    required this.createdAt,
-  });
-
-  factory TaskNotification.fromJson(Map<String, dynamic> json) {
-    return TaskNotification(
-      id: json['id'].toString(),
-      taskId: json['task_id'].toString(),
-      type: json['type'],
-      title: json['title'],
-      message: json['message'],
-      isRead: json['is_read'] ?? false,
-      createdAt: DateTime.parse(json['created_at']),
-    );
-  }
-}
 
 class TaskService {
   // Cache keys from the original file
@@ -566,33 +534,11 @@ class TaskService {
 
   // Add mock notification methods
   static Future<List<TaskNotification>> getNotifications() async {
-    // Return a mock list for now
-    await Future.delayed(Duration(milliseconds: 300));
-    return [
-      TaskNotification(
-        id: '1',
-        taskId: '101',
-        type: 'assignment',
-        title: 'Task Assigned',
-        message: 'You have been assigned a new task.',
-        isRead: false,
-        createdAt: DateTime.now().subtract(Duration(hours: 1)),
-      ),
-      TaskNotification(
-        id: '2',
-        taskId: '102',
-        type: 'update',
-        title: 'Task Updated',
-        message: 'A task you are assigned to was updated.',
-        isRead: true,
-        createdAt: DateTime.now().subtract(Duration(days: 1)),
-      ),
-    ];
+    return await ApiService.getNotifications();
   }
 
   static Future<void> markNotificationAsRead(String notificationId) async {
-    // Mock implementation: just wait
-    await Future.delayed(Duration(milliseconds: 100));
+    await ApiService.markNotificationAsRead(notificationId);
   }
 
   static Future<Duration> getTimeSpentForTask(String taskId) async {

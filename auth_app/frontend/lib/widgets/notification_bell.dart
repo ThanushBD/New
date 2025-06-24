@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:frontend/models/user.dart';
+import 'package:frontend/services/task_service.dart';
+import 'package:frontend/models/notification.dart';
 
 // Notification Bell Widget for App Bar
 class NotificationBell extends StatefulWidget {
@@ -61,11 +63,14 @@ class _NotificationBellState extends State<NotificationBell>
 
   Future<void> _loadNotifications() async {
     if (_isLoading) return;
-    
     setState(() => _isLoading = true);
-    
     try {
-      // Remove or comment out all code that references TaskService.getNotifications and TaskService.markNotificationAsRead.
+      final notifications = await TaskService.getNotifications();
+      if (!mounted) return;
+      setState(() {
+        _notifications = notifications;
+        _unreadCount = notifications.where((n) => !n.isRead).length;
+      });
     } catch (e) {
       // Handle error silently for background updates
     } finally {
@@ -90,7 +95,8 @@ class _NotificationBellState extends State<NotificationBell>
 
   Future<void> _markAsRead(String notificationId) async {
     try {
-      // Remove or comment out all code that references TaskService.getNotifications and TaskService.markNotificationAsRead.
+      await TaskService.markNotificationAsRead(notificationId);
+      await _loadNotifications();
     } catch (e) {
       // Handle error
     }
@@ -480,37 +486,5 @@ class _NotificationsPanelState extends State<NotificationsPanel>
     } else {
       return 'Just now';
     }
-  }
-}
-
-class TaskNotification {
-  final String id;
-  final String taskId;
-  final String type;
-  final String title;
-  final String message;
-  final bool isRead;
-  final DateTime createdAt;
-
-  TaskNotification({
-    required this.id,
-    required this.taskId,
-    required this.type,
-    required this.title,
-    required this.message,
-    required this.isRead,
-    required this.createdAt,
-  });
-
-  factory TaskNotification.fromJson(Map<String, dynamic> json) {
-    return TaskNotification(
-      id: json['id'].toString(),
-      taskId: json['task_id'].toString(),
-      type: json['type'],
-      title: json['title'],
-      message: json['message'],
-      isRead: json['is_read'] ?? false,
-      createdAt: DateTime.parse(json['created_at']),
-    );
   }
 }

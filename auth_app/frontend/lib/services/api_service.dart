@@ -7,6 +7,7 @@ import '../models/timesheet.dart';
 import '../models/user.dart';
 import 'storage_service.dart';
 import '../models/task_creation_data.dart';
+import '../models/notification.dart';
 
 class ApiService {
   static final String baseUrl = Constants.baseUrl;
@@ -612,15 +613,15 @@ class ApiService {
 
   // ============== NOTIFICATION ENDPOINTS ==============
 
-  //   static Future<List<TaskNotification>> getNotifications() async {
-  //     final response = await _makeRequest('GET', '/api/notifications');
-  //     final List<dynamic> notificationsJson = response['data'];
-  //     return notificationsJson.map((json) => TaskNotification.fromJson(json)).toList();
-  //   }
-  //
-  //   static Future<void> markNotificationAsRead(String notificationId) async {
-  //     await _makeRequest('PATCH', '/api/notifications/$notificationId/read');
-  //   }
+  static Future<List<TaskNotification>> getNotifications() async {
+    final response = await _makeRequest('GET', '/api/notifications');
+    final List<dynamic> notificationsJson = response['data'];
+    return notificationsJson.map((json) => TaskNotification.fromJson(json)).toList();
+  }
+
+  static Future<void> markNotificationAsRead(String notificationId) async {
+    await _makeRequest('PATCH', '/api/notifications/$notificationId/read');
+  }
 
   // ============== UTILITY METHODS ==============
 

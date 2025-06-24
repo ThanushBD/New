@@ -44,6 +44,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool _timerActionLoading = false;
 
+  List<Map<String, dynamic>> _weeklyStats = [];
+  List<Map<String, dynamic>> _timeByCategory = [];
+  String? _apiError;
+
+  Map<String, Duration> _timeSpentPerTask = {};
+
   @override
   void initState() {
     super.initState();
@@ -125,15 +131,27 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _loadAllData() async {
-    setState(() => _isLoading = true);
-    
+    setState(() {
+      _isLoading = true;
+      _apiError = null;
+    });
     try {
       final user = await StorageService.getUser();
-      final tasks = await TaskService.getTasks(useCache: false); 
-      final timeEntries = await TaskService.getTimeEntries(useCache: false); 
-      final activeTimer = await TaskService.getActiveTimer(); 
-      final statistics = await TaskService.getTaskStatistics(useCache: false); 
-
+      final tasks = await TaskService.getTasks(useCache: false);
+      final timeEntries = await TaskService.getTimeEntries(useCache: false);
+      final activeTimer = await TaskService.getActiveTimer();
+      final statistics = await TaskService.getTaskStatistics(useCache: false);
+      final weeklyStats = await ApiService.getWeeklyStats();
+      final timeByCategory = await ApiService.getTimeByCategory(
+        startDate: DateTime.now(),
+        endDate: DateTime.now(),
+      );
+      final Map<String, Duration> timeSpentMap = {};
+      for (final task in tasks) {
+        final entries = timeEntries.where((e) => e.taskId == task.id);
+        final total = entries.fold<Duration>(Duration.zero, (sum, e) => sum + e.elapsedDuration);
+        timeSpentMap[task.id] = total;
+      }
       if (mounted) {
         setState(() {
           _user = user;
@@ -141,10 +159,11 @@ class _HomeScreenState extends State<HomeScreen>
           _timeEntries = timeEntries;
           _activeTimer = activeTimer;
           _statistics = statistics;
+          _weeklyStats = weeklyStats;
+          _timeByCategory = timeByCategory;
+          _timeSpentPerTask = timeSpentMap;
           _isLoading = false;
         });
-
-        // Start animations after data loads
         _fadeController.forward();
         await Future.delayed(Duration(milliseconds: 200));
         _animationController.forward();
@@ -153,8 +172,15 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
-        _showErrorSnackBar('Failed to load data');
+        setState(() {
+          _isLoading = false;
+          if (e.toString().contains('429')) {
+            _apiError = 'You are making requests too quickly. Please wait a moment.';
+          } else {
+            _apiError = 'Failed to load data.';
+          }
+        });
+        _showErrorSnackBar(_apiError!);
       }
     }
   }
@@ -319,6 +345,14 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     if (_isLoading) {
       return _buildLoadingScreen();
+    }
+
+    if (_apiError != null) {
+      return Scaffold(
+        body: Center(
+          child: Text(_apiError!, style: TextStyle(color: Colors.red, fontSize: 18)),
+        ),
+      );
     }
 
     return Scaffold(
@@ -1070,234 +1104,228 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildStatisticsCards() {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: TaskService.getTaskStatistics(useCache: false),
-      builder: (context, snapshot) {
-        final stats = snapshot.data ?? {};
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Today\'s Overview',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        SizedBox(height: 16),
+        // First row - Basic task counts
+        Row(
           children: [
-            Text(
-              'Today\'s Overview',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(height: 16),
-            // First row - Basic task counts
-            Row(
-              children: [
-                Expanded(child: _buildStatCard(
-                  'Total Tasks',
-                  stats['total_tasks']?.toString() ?? '0',
-                  Icons.task_alt,
-                  Colors.blue,
-                )),
-                SizedBox(width: 12),
-                Expanded(child: _buildStatCard(
-                  'Completed',
-                  stats['completed_tasks']?.toString() ?? '0',
-                  Icons.check_circle,
-                  Colors.green,
-                )),
-              ],
-            ),
-            SizedBox(height: 12),
-            // Second row - Progress and assignments
-            Row(
-              children: [
-                Expanded(child: _buildStatCard(
-                  'In Progress',
-                  stats['in_progress_tasks']?.toString() ?? '0',
-                  Icons.play_circle,
-                  Colors.orange,
-                )),
-                SizedBox(width: 12),
-                Expanded(child: _buildStatCard(
-                  'Assigned to Me',
-                  stats['assignedToMe']?.toString() ?? '0',
-                  Icons.person,
-                  Colors.purple,
-                )),
-              ],
-            ),
-            SizedBox(height: 12),
-            // Third row - Time and assignments created
-            Row(
-              children: [
-                Expanded(child: _buildStatCard(
-                  'Time Today',
-                  stats['totalTimeTodayString'] ?? '0h 0m',
-                  Icons.access_time,
-                  Colors.indigo,
-                )),
-                SizedBox(width: 12),
-                Expanded(child: _buildStatCard(
-                  'Assigned by Me',
-                  stats['assignedByMe']?.toString() ?? '0',
-                  Icons.assignment_ind,
-                  Colors.teal,
-                )),
-              ],
-            ),
-            SizedBox(height: 12),
-            // New: Overdue, Due Today, Active Timers
-            FutureBuilder<List<Task>>(
-              future: TaskService.getTasks(useCache: false),
-              builder: (context, taskSnap) {
-                final tasks = taskSnap.data ?? [];
-                final now = DateTime.now();
-                final overdue = tasks.where((t) => t.dueDate != null && t.dueDate!.isBefore(now) && t.status != TaskStatus.completed).length;
-                final dueToday = tasks.where((t) => t.dueDate != null && t.dueDate!.day == now.day && t.dueDate!.month == now.month && t.dueDate!.year == now.year).length;
-                final completionRate = (stats['total_tasks'] != null && stats['total_tasks'] > 0)
-                  ? (((stats['completed_tasks'] ?? 0) / stats['total_tasks']) * 100).toStringAsFixed(1) + '%'
-                  : '0%';
-                return Row(
-                  children: [
-                    Expanded(child: _buildStatCard(
-                      'Overdue Tasks',
-                      overdue.toString(),
-                      Icons.warning,
-                      Colors.red,
-                    )),
-                    SizedBox(width: 12),
-                    Expanded(child: _buildStatCard(
-                      'Due Today',
-                      dueToday.toString(),
-                      Icons.today,
-                      Colors.deepOrange,
-                    )),
-                  ],
-                );
-              },
-            ),
-            SizedBox(height: 12),
-            FutureBuilder<List<TimeEntry>>(
-              future: TaskService.getTimeEntries(useCache: false),
-              builder: (context, timeSnap) {
-                final entries = timeSnap.data ?? [];
-                final activeTimers = entries.where((e) => e.isRunning).length;
-                return Row(
-                  children: [
-                    Expanded(child: _buildStatCard(
-                      'Active Timers',
-                      activeTimers.toString(),
-                      Icons.timer,
-                      Colors.pink,
-                    )),
-                    SizedBox(width: 12),
-                    Expanded(child: _buildStatCard(
-                      'Completion Rate',
-                      (stats['total_tasks'] != null && stats['total_tasks'] > 0)
-                        ? (((stats['completed_tasks'] ?? 0) / stats['total_tasks']) * 100).toStringAsFixed(1) + '%'
-                        : '0%',
-                      Icons.percent,
-                      Colors.blueGrey,
-                    )),
-                  ],
-                );
-              },
-            ),
-            SizedBox(height: 12),
-            // New: Total Time This Week
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: ApiService.getWeeklyStats(),
-              builder: (context, weekSnap) {
-                final weekStats = weekSnap.data ?? [];
-                final totalMinutes = weekStats.fold<int>(0, (sum, stat) {
-                  final total = stat['total_minutes'];
-                  if (total is int) return sum + total;
-                  if (total is String) return sum + (int.tryParse(total) ?? 0);
-                  if (total is num) return sum + total.toInt();
-                  return sum;
-                });
-                return Row(
-                  children: [
-                    Expanded(child: _buildStatCard(
-                      'Time This Week',
-                      '${(totalMinutes ~/ 60)}h ${(totalMinutes % 60)}m',
-                      Icons.calendar_today,
-                      Colors.deepPurple,
-                    )),
-                    SizedBox(width: 12),
-                    // Most Worked Category Today
-                    FutureBuilder<List<Map<String, dynamic>>>(
-                      future: ApiService.getTimeByCategory(
-                        startDate: DateTime.now(),
-                        endDate: DateTime.now(),
-                      ),
-                      builder: (context, catSnap) {
-                        final cats = catSnap.data ?? [];
-                        String mostCat = 'None';
-                        int mostMin = 0;
-                        for (final c in cats) {
-                          final int min = c['total_minutes'] is int
-                            ? c['total_minutes']
-                            : int.tryParse(c['total_minutes'].toString()) ?? 0;
-                          if (min > mostMin) {
-                            mostMin = min;
-                            mostCat = c['category'] ?? 'Unknown';
-                          }
-                        }
-                        return Expanded(child: _buildStatCard(
-                          'Top Category Today',
-                          mostCat,
-                          Icons.category,
-                          Colors.amber,
-                        ));
-                      },
-                    ),
-                  ],
-                );
-              },
-            ),
-            SizedBox(height: 12),
-            // New: Pie chart for today's category breakdown
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: ApiService.getTimeByCategory(
-                startDate: DateTime.now(),
-                endDate: DateTime.now(),
-              ),
-              builder: (context, catSnap) {
-                final cats = catSnap.data ?? [];
-                final total = cats.fold<int>(0, (sum, c) {
-                  final int min = c['total_minutes'] is int
-                    ? c['total_minutes']
-                    : int.tryParse(c['total_minutes'].toString()) ?? 0;
-                  return sum + min;
-                });
-                if (cats.isEmpty || total == 0) {
-                  return Container();
-                }
-                return SizedBox(
-                  height: 180,
-                  child: PieChart(
-                    PieChartData(
-                      sections: cats.map((c) {
-                        final min = c['total_minutes'] is int
-                          ? c['total_minutes']
-                          : int.tryParse(c['total_minutes'].toString()) ?? 0;
-                        final percent = total > 0 ? (min / total) * 100 : 0.0;
-                        return PieChartSectionData(
-                          value: min.toDouble(),
-                          title: '${c['category'] ?? 'Unknown'}\n${min}m',
-                          color: Colors.primaries[cats.indexOf(c) % Colors.primaries.length],
-                          radius: 60,
-                          titleStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                        );
-                      }).toList(),
-                      sectionsSpace: 2,
-                      centerSpaceRadius: 30,
-                    ),
-                  ),
-                );
-              },
-            ),
+            Expanded(child: _buildStatCard(
+              'Total Tasks',
+              _statistics['total_tasks']?.toString() ?? '0',
+              Icons.task_alt,
+              Colors.blue,
+            )),
+            SizedBox(width: 12),
+            Expanded(child: _buildStatCard(
+              'Completed',
+              _statistics['completed_tasks']?.toString() ?? '0',
+              Icons.check_circle,
+              Colors.green,
+            )),
           ],
-        );
-      },
+        ),
+        SizedBox(height: 12),
+        // Second row - Progress and assignments
+        Row(
+          children: [
+            Expanded(child: _buildStatCard(
+              'In Progress',
+              _statistics['in_progress_tasks']?.toString() ?? '0',
+              Icons.play_circle,
+              Colors.orange,
+            )),
+            SizedBox(width: 12),
+            Expanded(child: _buildStatCard(
+              'Assigned to Me',
+              _statistics['assignedToMe']?.toString() ?? '0',
+              Icons.person,
+              Colors.purple,
+            )),
+          ],
+        ),
+        SizedBox(height: 12),
+        // Third row - Time and assignments created
+        Row(
+          children: [
+            Expanded(child: _buildStatCard(
+              'Time Today',
+              _statistics['totalTimeTodayString'] ?? '0h 0m',
+              Icons.access_time,
+              Colors.indigo,
+            )),
+            SizedBox(width: 12),
+            Expanded(child: _buildStatCard(
+              'Assigned by Me',
+              _statistics['assignedByMe']?.toString() ?? '0',
+              Icons.assignment_ind,
+              Colors.teal,
+            )),
+          ],
+        ),
+        SizedBox(height: 12),
+        // New: Overdue, Due Today, Active Timers
+        FutureBuilder<List<Task>>(
+          future: TaskService.getTasks(useCache: false),
+          builder: (context, taskSnap) {
+            final tasks = taskSnap.data ?? [];
+            final now = DateTime.now();
+            final overdue = tasks.where((t) => t.dueDate != null && t.dueDate!.isBefore(now) && t.status != TaskStatus.completed).length;
+            final dueToday = tasks.where((t) => t.dueDate != null && t.dueDate!.day == now.day && t.dueDate!.month == now.month && t.dueDate!.year == now.year).length;
+            final completionRate = (_statistics['total_tasks'] != null && _statistics['total_tasks'] > 0)
+              ? (((_statistics['completed_tasks'] ?? 0) / _statistics['total_tasks']) * 100).toStringAsFixed(1) + '%'
+              : '0%';
+            return Row(
+              children: [
+                Expanded(child: _buildStatCard(
+                  'Overdue Tasks',
+                  overdue.toString(),
+                  Icons.warning,
+                  Colors.red,
+                )),
+                SizedBox(width: 12),
+                Expanded(child: _buildStatCard(
+                  'Due Today',
+                  dueToday.toString(),
+                  Icons.today,
+                  Colors.deepOrange,
+                )),
+              ],
+            );
+          },
+        ),
+        SizedBox(height: 12),
+        FutureBuilder<List<TimeEntry>>(
+          future: TaskService.getTimeEntries(useCache: false),
+          builder: (context, timeSnap) {
+            final entries = timeSnap.data ?? [];
+            final activeTimers = entries.where((e) => e.isRunning).length;
+            return Row(
+              children: [
+                Expanded(child: _buildStatCard(
+                  'Active Timers',
+                  activeTimers.toString(),
+                  Icons.timer,
+                  Colors.pink,
+                )),
+                SizedBox(width: 12),
+                Expanded(child: _buildStatCard(
+                  'Completion Rate',
+                  (_statistics['total_tasks'] != null && _statistics['total_tasks'] > 0)
+                    ? (((_statistics['completed_tasks'] ?? 0) / _statistics['total_tasks']) * 100).toStringAsFixed(1) + '%'
+                    : '0%',
+                  Icons.percent,
+                  Colors.blueGrey,
+                )),
+              ],
+            );
+          },
+        ),
+        SizedBox(height: 12),
+        // New: Total Time This Week
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: ApiService.getWeeklyStats(),
+          builder: (context, weekSnap) {
+            final weekStats = weekSnap.data ?? [];
+            final totalMinutes = weekStats.fold<int>(0, (sum, stat) {
+              final total = stat['total_minutes'];
+              if (total is int) return sum + total;
+              if (total is String) return sum + (int.tryParse(total) ?? 0);
+              if (total is num) return sum + total.toInt();
+              return sum;
+            });
+            return Row(
+              children: [
+                Expanded(child: _buildStatCard(
+                  'Time This Week',
+                  '${(totalMinutes ~/ 60)}h ${(totalMinutes % 60)}m',
+                  Icons.calendar_today,
+                  Colors.deepPurple,
+                )),
+                SizedBox(width: 12),
+                // Most Worked Category Today
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: ApiService.getTimeByCategory(
+                    startDate: DateTime.now(),
+                    endDate: DateTime.now(),
+                  ),
+                  builder: (context, catSnap) {
+                    final cats = catSnap.data ?? [];
+                    String mostCat = 'None';
+                    int mostMin = 0;
+                    for (final c in cats) {
+                      final int min = c['total_minutes'] is int
+                        ? c['total_minutes']
+                        : int.tryParse(c['total_minutes'].toString()) ?? 0;
+                      if (min > mostMin) {
+                        mostMin = min;
+                        mostCat = c['category'] ?? 'Unknown';
+                      }
+                    }
+                    return Expanded(child: _buildStatCard(
+                      'Top Category Today',
+                      mostCat,
+                      Icons.category,
+                      Colors.amber,
+                    ));
+                  },
+                ),
+              ],
+            );
+          },
+        ),
+        SizedBox(height: 12),
+        // New: Pie chart for today's category breakdown
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: ApiService.getTimeByCategory(
+            startDate: DateTime.now(),
+            endDate: DateTime.now(),
+          ),
+          builder: (context, catSnap) {
+            final cats = catSnap.data ?? [];
+            final total = cats.fold<int>(0, (sum, c) {
+              final int min = c['total_minutes'] is int
+                ? c['total_minutes']
+                : int.tryParse(c['total_minutes'].toString()) ?? 0;
+              return sum + min;
+            });
+            if (cats.isEmpty || total == 0) {
+              return Container();
+            }
+            return SizedBox(
+              height: 180,
+              child: PieChart(
+                PieChartData(
+                  sections: cats.map((c) {
+                    final min = c['total_minutes'] is int
+                      ? c['total_minutes']
+                      : int.tryParse(c['total_minutes'].toString()) ?? 0;
+                    final percent = total > 0 ? (min / total) * 100 : 0.0;
+                    return PieChartSectionData(
+                      value: min.toDouble(),
+                      title: '${c['category'] ?? 'Unknown'}\n${min}m',
+                      color: Colors.primaries[cats.indexOf(c) % Colors.primaries.length],
+                      radius: 60,
+                      titleStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                    );
+                  }).toList(),
+                  sectionsSpace: 2,
+                  centerSpaceRadius: 30,
+                ),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -1565,225 +1593,203 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildTaskCard(Task task) {
-    return FutureBuilder<Duration>(
-      future: TaskService.getTimeSpentForTask(task.id),
-      builder: (context, snapshot) {
-        final timeSpent = snapshot.data ?? Duration.zero;
-        return Container(
-          margin: EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: Offset(0, 5),
-              ),
-            ],
+    return Container(
+      margin: EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: Offset(0, 5),
           ),
-          child: Padding(
-            padding: EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        task.title,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade800,
-                          decoration: task.status == TaskStatus.completed
-                              ? TextDecoration.lineThrough
-                              : null,
-                        ),
-                      ),
-                    ),
-                    PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        switch (value) {
-                          case 'toggle':
-                            await _toggleTaskStatus(task.id);
-                            break;
-                          case 'timer':
-                            await _toggleTimer(task);
-                            break;
-                          case 'delete':
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: Text('Delete Task'),
-                                content: Text('Are you sure you want to delete this task?'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context, false),
-                                    child: Text('Cancel'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context, true),
-                                    child: Text('Delete', style: TextStyle(color: Colors.red)),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (confirm == true) {
-                              await _deleteTask(task.id);
-                            }
-                            break;
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'toggle',
-                          child: Row(
-                            children: [
-                              Icon(
-                                task.status == TaskStatus.completed
-                                    ? Icons.restart_alt
-                                    : Icons.check_circle,
-                                size: 20,
-                              ),
-                              SizedBox(width: 8),
-                              Text(task.status == TaskStatus.completed
-                                  ? 'Mark Incomplete'
-                                  : 'Mark Complete'),
-                            ],
-                          ),
-                        ),
-                        if (task.status != TaskStatus.completed)
-                          PopupMenuItem(
-                            value: 'timer',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  _activeTimer?.taskId == task.id && _activeTimer!.isRunning
-                                      ? Icons.stop
-                                      : Icons.play_arrow,
-                                  size: 20,
-                                ),
-                                SizedBox(width: 8),
-                                Text(_activeTimer?.taskId == task.id && _activeTimer!.isRunning
-                                    ? 'Stop Timer'
-                                    : 'Start Timer'),
-                              ],
-                            ),
-                          ),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete, size: 20, color: Colors.red),
-                              SizedBox(width: 8),
-                              Text('Delete', style: TextStyle(color: Colors.red)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                if (task.description.isNotEmpty) ...[
-                  SizedBox(height: 8),
-                  Text(
-                    task.description,
+                Expanded(
+                  child: Text(
+                    task.title,
                     style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade600,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade800,
+                      decoration: task.status == TaskStatus.completed
+                          ? TextDecoration.lineThrough
+                          : null,
                     ),
                   ),
-                ],
-                SizedBox(height: 12),
-                Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: task.priorityColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: task.priorityColor.withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        task.priorityLabel,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: task.priorityColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: task.statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: task.statusColor.withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        task.statusLabel,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: task.statusColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    Spacer(),
-                    if (task.dueDate != null)
-                      Row(
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (value) async {
+                    switch (value) {
+                      case 'toggle':
+                        await _toggleTaskStatus(task.id);
+                        break;
+                      case 'timer':
+                        await _toggleTimer(task);
+                        break;
+                      case 'delete':
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: Text('Delete Task'),
+                            content: Text('Are you sure you want to delete this task?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: Text('Delete', style: TextStyle(color: Colors.red)),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) {
+                          await _deleteTask(task.id);
+                        }
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'toggle',
+                      child: Row(
                         children: [
                           Icon(
-                            Icons.schedule,
-                            size: 16,
-                            color: task.isOverdue ? Colors.red : Colors.grey.shade600,
+                            task.status == TaskStatus.completed
+                                ? Icons.restart_alt
+                                : Icons.check_circle,
+                            size: 20,
                           ),
-                          SizedBox(width: 4),
-                          Text(
-                            '${task.dueDate!.day}/${task.dueDate!.month}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: task.isOverdue ? Colors.red : Colors.grey.shade600,
-                            ),
-                          ),
+                          SizedBox(width: 8),
+                          Text(task.status == TaskStatus.completed
+                              ? 'Mark Incomplete'
+                              : 'Mark Complete'),
                         ],
                       ),
-                  ],
-                ),
-                if (task.category.isNotEmpty) ...[
-                  SizedBox(height: 8),
-                  Text(
-                    task.category,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade500,
-                      fontWeight: FontWeight.w500,
                     ),
-                  ),
-                ],
-                // Time spent UI
-                SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.access_time, size: 16, color: Color(0xFF667eea)),
-                    SizedBox(width: 4),
-                    Text(
-                      'Time Spent: ${timeSpent.inHours}h ${timeSpent.inMinutes.remainder(60)}m',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF667eea),
-                        fontWeight: FontWeight.w600,
+                    if (task.status != TaskStatus.completed)
+                      PopupMenuItem(
+                        value: 'timer',
+                        child: Row(
+                          children: [
+                            Icon(
+                              _activeTimer?.taskId == task.id && _activeTimer!.isRunning
+                                  ? Icons.stop
+                                  : Icons.play_arrow,
+                              size: 20,
+                            ),
+                            SizedBox(width: 8),
+                            Text(_activeTimer?.taskId == task.id && _activeTimer!.isRunning
+                                ? 'Stop Timer'
+                                : 'Start Timer'),
+                          ],
+                        ),
+                      ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete, size: 20, color: Colors.red),
+                          SizedBox(width: 8),
+                          Text('Delete', style: TextStyle(color: Colors.red)),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ],
             ),
-          ),
-        );
-      },
+            if (task.description.isNotEmpty) ...[
+              SizedBox(height: 8),
+              Text(
+                task.description,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
+            SizedBox(height: 12),
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: task.priorityColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: task.priorityColor.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    task.priorityLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: task.priorityColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: task.statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: task.statusColor.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    task.statusLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: task.statusColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Spacer(),
+                if (task.dueDate != null)
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.schedule,
+                        size: 16,
+                        color: task.isOverdue ? Colors.red : Colors.grey.shade600,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        '${task.dueDate!.day}/${task.dueDate!.month}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: task.isOverdue ? Colors.red : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            if (task.category.isNotEmpty) ...[
+              SizedBox(height: 8),
+              Text(
+                task.category,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -2311,112 +2317,127 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildWeeklyWorkloadChart() {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: ApiService.getWeeklyStats(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return Center(child: CircularProgressIndicator());
-        }
-        final weekStats = snapshot.data!;
-        final days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-        final now = DateTime.now();
-        List<int> minutes = List.filled(7, 0);
-        for (final stat in weekStats) {
-          final date = DateTime.parse(stat['date']);
-          final weekday = date.weekday % 7; // Monday=1, Sunday=7->0
-          final total = stat['total_minutes'];
-          int minVal;
-          if (total is int) {
-            minVal = total;
-          } else if (total is String) {
-            minVal = int.tryParse(total) ?? 0;
-          } else if (total is num) {
-            minVal = total.toInt();
-          } else {
-            minVal = 0;
-          }
-          minutes[weekday == 0 ? 6 : weekday - 1] = minVal;
-        }
-        final maxMinutes = (minutes.reduce((a, b) => a > b ? a : b)).clamp(60, 480);
-        return Container(
-          padding: EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(25),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 20,
-                offset: Offset(0, 10),
-              ),
-            ],
+    final days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    // Always create a 7-element list for the week
+    final List<int> minutes = List.filled(7, 0);
+    for (final stat in _weeklyStats) {
+      if (stat['date'] == null) continue;
+      final date = DateTime.tryParse(stat['date'].toString());
+      if (date == null) continue;
+      final weekday = date.weekday % 7; // Monday=1, Sunday=7->0
+      final total = stat['total_minutes'];
+      int minVal;
+      if (total is int) {
+        minVal = total;
+      } else if (total is String) {
+        minVal = int.tryParse(total) ?? 0;
+      } else if (total is num) {
+        minVal = total.toInt();
+      } else {
+        minVal = 0;
+      }
+      minutes[weekday == 0 ? 6 : weekday - 1] = minVal;
+    }
+    final maxMinutes = minutes.isNotEmpty ? (minutes.reduce((a, b) => a > b ? a : b)).clamp(60, 480) : 60;
+    if (_weeklyStats.isEmpty || minutes.every((m) => m == 0)) {
+      return Container(
+        padding: EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(25),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 20,
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            'No weekly data available',
+            style: TextStyle(color: Colors.grey),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Workload This Week',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade800,
-                ),
-              ),
-              SizedBox(height: 20),
-              SizedBox(
-                height: 180,
-                child: BarChart(
-                  BarChartData(
-                    alignment: BarChartAlignment.spaceAround,
-                    maxY: maxMinutes.toDouble(),
-                    barTouchData: BarTouchData(enabled: false),
-                    titlesData: FlTitlesData(
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 28,
-                          getTitlesWidget: (value, meta) {
-                            return Text('${value.toInt()}m', style: TextStyle(fontSize: 10));
-                          },
-                        ),
-                      ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          getTitlesWidget: (value, meta) {
-                            final idx = value.toInt();
-                            return Text(days[idx], style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600));
-                          },
-                        ),
-                      ),
-                      rightTitles: AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                      topTitles: AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
+        ),
+      );
+    }
+    return Container(
+      padding: EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(25),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 20,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Workload This Week',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          SizedBox(height: 20),
+          SizedBox(
+            height: 180,
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                maxY: maxMinutes.toDouble(),
+                barTouchData: BarTouchData(enabled: false),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 28,
+                      getTitlesWidget: (value, meta) {
+                        return Text('${value.toInt()}m', style: TextStyle(fontSize: 10));
+                      },
                     ),
-                    borderData: FlBorderData(show: false),
-                    barGroups: List.generate(7, (i) {
-                      return BarChartGroupData(
-                        x: i,
-                        barRods: [
-                          BarChartRodData(
-                            toY: minutes[i].toDouble(),
-                            color: Color(0xFF667eea),
-                            width: 18,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                        ],
-                      );
-                    }),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        return Text(days[idx], style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600));
+                      },
+                    ),
+                  ),
+                  rightTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
                   ),
                 ),
+                borderData: FlBorderData(show: false),
+                barGroups: List.generate(7, (i) {
+                  return BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: minutes[i].toDouble(),
+                        color: Color(0xFF667eea),
+                        width: 18,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ],
+                  );
+                }),
               ),
-            ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

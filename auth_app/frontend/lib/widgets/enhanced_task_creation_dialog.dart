@@ -254,24 +254,26 @@ class _EnhancedTaskCreationDialogState extends State<EnhancedTaskCreationDialog>
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildHeader(),
-                Flexible(
-                  child: Form(
-                    key: _formKey,
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildAssignmentSection(),
-                          SizedBox(height: 24),
-                          _buildTaskDetailsSection(),
-                          SizedBox(height: 24),
-                          _buildSchedulingSection(),
-                          SizedBox(height: 24),
-                          _buildTagsSection(),
-                          SizedBox(height: 32),
-                          _buildActionButtons(),
-                        ],
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Form(
+                      key: _formKey,
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildAssignmentSection(),
+                            SizedBox(height: 24),
+                            _buildTaskDetailsSection(),
+                            SizedBox(height: 24),
+                            _buildSchedulingSection(),
+                            SizedBox(height: 24),
+                            _buildTagsSection(),
+                            SizedBox(height: 32),
+                            _buildActionButtons(),
+                          ],
+                        ),
                       ),
                     ),
                   ),

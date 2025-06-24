@@ -75,6 +75,11 @@ class User {
   static async comparePassword(plainPassword, hashedPassword) {
     return await bcrypt.compare(plainPassword, hashedPassword);
   }
+
+  static async setEmailVerified(userId) {
+    const query = 'UPDATE users SET email_verified = true WHERE id = $1';
+    await pool.query(query, [userId]);
+  }
 }
 
 module.exports = User;

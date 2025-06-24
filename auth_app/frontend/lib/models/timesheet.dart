@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class TimeEntry {
   final String id;
   final String taskId;
@@ -7,6 +9,8 @@ class TimeEntry {
   final String description;
   final String category;
   final bool isRunning;
+  final List<Map<String, String>> intervals;
+  final int totalDuration; // in seconds
 
   TimeEntry({
     required this.id,
@@ -17,18 +21,34 @@ class TimeEntry {
     required this.description,
     required this.category,
     this.isRunning = false,
+    this.intervals = const [],
+    this.totalDuration = 0,
   });
 
   factory TimeEntry.fromJson(Map<String, dynamic> json) {
+    List<Map<String, String>> intervals = [];
+    if (json['intervals'] != null) {
+      if (json['intervals'] is String) {
+        intervals = List<Map<String, String>>.from(
+          (jsonDecode(json['intervals']) as List).map((e) => Map<String, String>.from(e))
+        );
+      } else if (json['intervals'] is List) {
+        intervals = List<Map<String, String>>.from(
+          (json['intervals'] as List).map((e) => Map<String, String>.from(e))
+        );
+      }
+    }
     return TimeEntry(
-      id: json['id'],
-      taskId: json['taskId'],
-      taskTitle: json['taskTitle'],
-      startTime: DateTime.parse(json['startTime']),
-      endTime: json['endTime'] != null ? DateTime.parse(json['endTime']) : null,
-      description: json['description'],
-      category: json['category'],
-      isRunning: json['isRunning'] ?? false,
+      id: json['id'].toString(),
+      taskId: json['task_id'].toString(),
+      taskTitle: json['task_title'] ?? '',
+      startTime: DateTime.parse(json['start_time']),
+      endTime: json['end_time'] != null ? DateTime.parse(json['end_time']) : null,
+      description: json['description'] ?? '',
+      category: json['category'] ?? '',
+      isRunning: json['is_running'] ?? false,
+      intervals: intervals,
+      totalDuration: json['total_duration'] ?? 0,
     );
   }
 
@@ -42,6 +62,8 @@ class TimeEntry {
       'description': description,
       'category': category,
       'isRunning': isRunning,
+      'intervals': intervals,
+      'total_duration': totalDuration,
     };
   }
 
@@ -54,6 +76,8 @@ class TimeEntry {
     String? description,
     String? category,
     bool? isRunning,
+    List<Map<String, String>>? intervals,
+    int? totalDuration,
   }) {
     return TimeEntry(
       id: id ?? this.id,
@@ -64,20 +88,22 @@ class TimeEntry {
       description: description ?? this.description,
       category: category ?? this.category,
       isRunning: isRunning ?? this.isRunning,
+      intervals: intervals ?? this.intervals,
+      totalDuration: totalDuration ?? this.totalDuration,
     );
   }
 
-  Duration get duration {
-    if (endTime != null) {
-      return endTime!.difference(startTime);
-    } else if (isRunning) {
-      return DateTime.now().difference(startTime);
+  Duration get elapsedDuration {
+    int seconds = totalDuration;
+    if (isRunning && intervals.isNotEmpty && intervals.last['start'] != null && intervals.last['stop'] == null) {
+      final start = DateTime.parse(intervals.last['start']!);
+      seconds += DateTime.now().difference(start).inSeconds;
     }
-    return Duration.zero;
+    return Duration(seconds: seconds);
   }
 
   String get durationString {
-    final dur = duration;
+    final dur = elapsedDuration;
     final hours = dur.inHours;
     final minutes = dur.inMinutes.remainder(60);
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
@@ -117,7 +143,7 @@ class DailyTimesheet {
     final Map<String, Duration> categoryTime = {};
     for (final entry in entries) {
       categoryTime[entry.category] = 
-          (categoryTime[entry.category] ?? Duration.zero) + entry.duration;
+          (categoryTime[entry.category] ?? Duration.zero) + entry.elapsedDuration;
     }
     return categoryTime;
   }

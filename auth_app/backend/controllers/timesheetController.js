@@ -271,6 +271,31 @@ const stopTimer = async (req, res) => {
   }
 };
 
+// Pause active timer
+const pauseTimer = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const timeEntry = await TimeEntry.pauseTimer(userId);
+    if (!timeEntry) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active timer found to pause'
+      });
+    }
+    res.json({
+      success: true,
+      data: timeEntry,
+      message: 'Timer paused successfully'
+    });
+  } catch (error) {
+    console.error('Pause timer error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to pause timer'
+    });
+  }
+};
+
 // Get active timer
 const getActiveTimer = async (req, res) => {
   try {
@@ -561,6 +586,7 @@ module.exports = {
   deleteTimeEntry,
   startTimer,
   stopTimer,
+  pauseTimer,
   getActiveTimer,
   getTodayStats,
   getWeeklyStats,

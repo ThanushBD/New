@@ -4,7 +4,9 @@ import 'dart:io';
 import '../utils/constants.dart';
 import '../models/task.dart';
 import '../models/timesheet.dart';
+import '../models/user.dart';
 import 'storage_service.dart';
+import '../models/task_creation_data.dart';
 
 class ApiService {
   static final String baseUrl = Constants.baseUrl;
@@ -201,6 +203,14 @@ class ApiService {
     return await _makeRequest('POST', '/api/auth/logout');
   }
 
+  // ============== USER ENDPOINTS ==============
+
+  static Future<List<User>> getAvailableUsers() async {
+    final response = await _makeRequest('GET', '/api/tasks/users/available');
+    final List<dynamic> usersJson = response['data'];
+    return usersJson.map((json) => User.fromJson(json)).toList();
+  }
+
   // ============== TASK ENDPOINTS ==============
 
   static Future<List<Task>> getTasks({
@@ -242,7 +252,7 @@ class ApiService {
     String? priority,
     String? category,
     List<String>? tags,
-    int? estimatedMinutes,
+    double? estimatedHours,
     DateTime? dueDate,
   }) async {
     final response = await _makeRequest(
@@ -254,12 +264,29 @@ class ApiService {
         'priority': priority,
         'category': category,
         'tags': tags,
-        'estimatedMinutes': estimatedMinutes,
-        'dueDate': dueDate?.toIso8601String(),
+        'estimated_hours': estimatedHours,
+        'due_date': dueDate?.toIso8601String(),
       },
     );
 
     return Task.fromJson(response['data']);
+  }
+
+  static Future<void> createTaskWithAssignment(TaskCreationData taskData) async {
+    await _makeRequest(
+      'POST',
+      '/api/tasks',
+      body: {
+        'title': taskData.title,
+        'description': taskData.description,
+        'assigned_to_id': taskData.assignedTo.id,
+        'priority': taskData.priority.toString().split('.').last,
+        'category': taskData.category,
+        'estimated_hours': taskData.estimatedHours,
+        'due_date': taskData.dueDate?.toIso8601String(),
+        'tags': taskData.tags,
+      },
+    );
   }
 
   static Future<Task> updateTask(
@@ -270,7 +297,7 @@ class ApiService {
     String? status,
     String? category,
     List<String>? tags,
-    int? estimatedMinutes,
+    double? estimatedHours,
     DateTime? dueDate,
   }) async {
     final body = <String, dynamic>{};
@@ -280,8 +307,8 @@ class ApiService {
     if (status != null) body['status'] = status;
     if (category != null) body['category'] = category;
     if (tags != null) body['tags'] = tags;
-    if (estimatedMinutes != null) body['estimatedMinutes'] = estimatedMinutes;
-    if (dueDate != null) body['dueDate'] = dueDate.toIso8601String();
+    if (estimatedHours != null) body['estimated_hours'] = estimatedHours;
+    if (dueDate != null) body['due_date'] = dueDate.toIso8601String();
 
     final response = await _makeRequest(
       'PUT',
@@ -371,6 +398,14 @@ class ApiService {
   static Future<TimeEntry?> getActiveTimer() async {
     final response = await _makeRequest('GET', '/api/tasks/timer/active');
     return response['data'] != null ? TimeEntry.fromJson(response['data']) : null;
+  }
+
+  static Future<TimeEntry?> pauseTimer() async {
+    final response = await _makeRequest('POST', '/api/timesheet/timer/pause');
+    if (response['success'] == true && response['data'] != null) {
+      return TimeEntry.fromJson(response['data']);
+    }
+    return null;
   }
 
   // ============== TIMESHEET ENDPOINTS ==============
@@ -574,6 +609,18 @@ class ApiService {
 
     return response['data'];
   }
+
+  // ============== NOTIFICATION ENDPOINTS ==============
+
+  //   static Future<List<TaskNotification>> getNotifications() async {
+  //     final response = await _makeRequest('GET', '/api/notifications');
+  //     final List<dynamic> notificationsJson = response['data'];
+  //     return notificationsJson.map((json) => TaskNotification.fromJson(json)).toList();
+  //   }
+  //
+  //   static Future<void> markNotificationAsRead(String notificationId) async {
+  //     await _makeRequest('PATCH', '/api/notifications/$notificationId/read');
+  //   }
 
   // ============== UTILITY METHODS ==============
 

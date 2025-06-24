@@ -1,4 +1,19 @@
 const pool = require('../config/database');
+const { Pool } = require('pg');
+
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function calcTotalDuration(intervals) {
+  let total = 0;
+  for (const interval of intervals) {
+    if (interval.start && interval.stop) {
+      total += (new Date(interval.stop) - new Date(interval.start)) / 1000;
+    }
+  }
+  return Math.floor(total);
+}
 
 class TimeEntry {
   static async create({ userId, taskId, taskTitle, startTime, description = '', category = 'General' }) {
@@ -131,40 +146,80 @@ class TimeEntry {
   // Active Timer Management
   static async startTimer(userId, taskId, taskTitle, category = 'General', description = '') {
     const client = await pool.connect();
-    
     try {
       await client.query('BEGIN');
-
       // Stop any existing active timer
       await this.stopActiveTimer(userId, client);
-
-      // Create new active timer
-      const activeTimerQuery = `
-        INSERT INTO active_timers (user_id, task_id, task_title, start_time, description, category)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *
-      `;
-      const startTime = new Date();
-      const activeResult = await client.query(activeTimerQuery, [
-        userId, taskId, taskTitle, startTime, description, category
-      ]);
-
-      // Create time entry
-      const timeEntryQuery = `
-        INSERT INTO time_entries (user_id, task_id, task_title, start_time, description, category, is_running)
-        VALUES ($1, $2, $3, $4, $5, $6, true)
-        RETURNING *
-      `;
-      const entryResult = await client.query(timeEntryQuery, [
-        userId, taskId, taskTitle, startTime, description, category
-      ]);
-
+      // Check for a paused entry (end_time is null, is_running is false)
+      const pausedQuery = `SELECT * FROM time_entries WHERE user_id = $1 AND task_id = $2 AND end_time IS NULL AND is_running = false ORDER BY start_time DESC LIMIT 1`;
+      const pausedResult = await client.query(pausedQuery, [userId, taskId]);
+      let entry;
+      if (pausedResult.rows.length > 0) {
+        // Resume: append new interval
+        entry = pausedResult.rows[0];
+        let intervals = entry.intervals || [];
+        if (typeof intervals === 'string') intervals = JSON.parse(intervals);
+        intervals.push({ start: nowISO() });
+        const updateQuery = `UPDATE time_entries SET is_running = true, intervals = $1 WHERE id = $2 RETURNING *`;
+        const updateResult = await client.query(updateQuery, [JSON.stringify(intervals), entry.id]);
+        entry = updateResult.rows[0];
+      } else {
+        // New entry
+        const intervals = [{ start: nowISO() }];
+        const insertQuery = `INSERT INTO time_entries (user_id, task_id, task_title, start_time, description, category, is_running, intervals, total_duration) VALUES ($1, $2, $3, $4, $5, $6, true, $7, 0) RETURNING *`;
+        const startTime = new Date();
+        const insertResult = await client.query(insertQuery, [userId, taskId, taskTitle, startTime, description, category, JSON.stringify(intervals)]);
+        entry = insertResult.rows[0];
+      }
+      // Create/Update active timer
+      const activeTimerQuery = `INSERT INTO active_timers (user_id, task_id, task_title, start_time, description, category) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`;
+      const activeResult = await client.query(activeTimerQuery, [userId, taskId, taskTitle, new Date(), description, category]);
       await client.query('COMMIT');
-      
-      return {
-        activeTimer: activeResult.rows[0],
-        timeEntry: entryResult.rows[0]
-      };
+      return { activeTimer: activeResult.rows[0], timeEntry: entry };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async pauseTimer(userId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Get active timer
+      const activeTimerQuery = 'SELECT * FROM active_timers WHERE user_id = $1';
+      const activeResult = await client.query(activeTimerQuery, [userId]);
+      if (activeResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      const activeTimer = activeResult.rows[0];
+      // Update time entry: close interval, update total_duration, set is_running false
+      const entryQuery = `SELECT * FROM time_entries WHERE user_id = $1 AND task_id = $2 AND is_running = true AND end_time IS NULL ORDER BY start_time DESC LIMIT 1`;
+      const entryResult = await client.query(entryQuery, [userId, activeTimer.task_id]);
+      if (entryResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      let entry = entryResult.rows[0];
+      let intervals = entry.intervals || [];
+      if (typeof intervals === 'string') intervals = JSON.parse(intervals);
+      if (intervals.length === 0 || intervals[intervals.length - 1].stop) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      intervals[intervals.length - 1].stop = nowISO();
+      const total_duration = calcTotalDuration(intervals);
+      const updateQuery = `UPDATE time_entries SET is_running = false, intervals = $1, total_duration = $2 WHERE id = $3 RETURNING *`;
+      const updateResult = await client.query(updateQuery, [JSON.stringify(intervals), total_duration, entry.id]);
+      entry = updateResult.rows[0];
+      // Delete active timer
+      const deleteTimerQuery = 'DELETE FROM active_timers WHERE user_id = $1';
+      await client.query(deleteTimerQuery, [userId]);
+      await client.query('COMMIT');
+      return entry;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -175,40 +230,41 @@ class TimeEntry {
 
   static async stopTimer(userId) {
     const client = await pool.connect();
-    
     try {
       await client.query('BEGIN');
-
       // Get active timer
       const activeTimerQuery = 'SELECT * FROM active_timers WHERE user_id = $1';
       const activeResult = await client.query(activeTimerQuery, [userId]);
-      
       if (activeResult.rows.length === 0) {
         await client.query('ROLLBACK');
         return null;
       }
-
       const activeTimer = activeResult.rows[0];
+      // Update time entry: close interval, update total_duration, set is_running false, set end_time
+      const entryQuery = `SELECT * FROM time_entries WHERE user_id = $1 AND task_id = $2 AND is_running = true AND end_time IS NULL ORDER BY start_time DESC LIMIT 1`;
+      const entryResult = await client.query(entryQuery, [userId, activeTimer.task_id]);
+      if (entryResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      let entry = entryResult.rows[0];
+      let intervals = entry.intervals || [];
+      if (typeof intervals === 'string') intervals = JSON.parse(intervals);
+      if (intervals.length === 0 || intervals[intervals.length - 1].stop) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+      intervals[intervals.length - 1].stop = nowISO();
+      const total_duration = calcTotalDuration(intervals);
+      const updateQuery = `UPDATE time_entries SET is_running = false, end_time = $1, intervals = $2, total_duration = $3 WHERE id = $4 RETURNING *`;
       const endTime = new Date();
-
-      // Update time entry
-      const updateEntryQuery = `
-        UPDATE time_entries 
-        SET end_time = $1, is_running = false, updated_at = $1
-        WHERE user_id = $2 AND task_id = $3 AND is_running = true
-        RETURNING *
-      `;
-      const entryResult = await client.query(updateEntryQuery, [
-        endTime, userId, activeTimer.task_id
-      ]);
-
+      const updateResult = await client.query(updateQuery, [endTime, JSON.stringify(intervals), total_duration, entry.id]);
+      entry = updateResult.rows[0];
       // Delete active timer
       const deleteTimerQuery = 'DELETE FROM active_timers WHERE user_id = $1';
       await client.query(deleteTimerQuery, [userId]);
-
       await client.query('COMMIT');
-      
-      return entryResult.rows[0];
+      return entry;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

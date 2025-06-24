@@ -20,7 +20,7 @@ const register = async (req, res) => {
       return res.status(400).json({ message: 'User already exists with this email' });
     }
 
-    const userData = await User.create({ email, password, firstName, lastName });
+    const userData = await User.create({ email, password, firstName, lastName, emailVerified: true });
     
     // Send verification email
     try {
@@ -64,6 +64,9 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    // Auto-verify user on login
+    await User.setEmailVerified(user.id);
+
     const token = generateToken(user.id);
 
     res.json({
@@ -74,7 +77,7 @@ const login = async (req, res) => {
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        emailVerified: user.email_verified,
+        emailVerified: true,
         avatarUrl: user.avatar_url,
       },
     });

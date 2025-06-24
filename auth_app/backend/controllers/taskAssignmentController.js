@@ -1,7 +1,8 @@
 const Task = require('../models/Task');
 const TimeEntry = require('../models/TimeEntry');
+const pool = require('../config/database');
 
-// Get all tasks for the authenticated user
+// Get all tasks for the authenticated user (including assigned tasks)
 const getTasks = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -14,14 +15,16 @@ const getTasks = async (req, res) => {
       sortOrder, 
       limit, 
       offset,
-      search 
+      search,
+      includeAssigned = 'true' // Include tasks assigned to user
     } = req.query;
 
     let tasks;
     if (search) {
       tasks = await Task.searchTasks(userId, search, { 
         status, 
-        limit: limit ? parseInt(limit) : undefined 
+        limit: limit ? parseInt(limit) : undefined,
+        includeAssigned: includeAssigned === 'true'
       });
     } else {
       const options = {
@@ -32,7 +35,8 @@ const getTasks = async (req, res) => {
         sortBy,
         sortOrder,
         limit: limit ? parseInt(limit) : undefined,
-        offset: offset ? parseInt(offset) : undefined
+        offset: offset ? parseInt(offset) : undefined,
+        includeAssigned: includeAssigned === 'true'
       };
       tasks = await Task.findByUserId(userId, options);
     }
@@ -78,7 +82,7 @@ const getTask = async (req, res) => {
   }
 };
 
-// Create a new task
+// Enhanced create task with optional assignment
 const createTask = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -88,11 +92,12 @@ const createTask = async (req, res) => {
       priority, 
       category, 
       tags, 
-      estimatedMinutes, 
+      estimatedMinutes,
+      estimatedHours,
       dueDate,
-      assigned_to,
-      assignedTo,
-      assigned_to_id
+      startDate,
+      assignedTo, // Optional assignment
+      assigned_to // Alternative naming
     } = req.body;
 
     if (!title || title.trim().length === 0) {
@@ -102,27 +107,49 @@ const createTask = async (req, res) => {
       });
     }
 
-    // Determine assignee
-    const assigneeId = assigned_to || assignedTo || assigned_to_id || null;
+    // Determine if this is an assignment
+    const assigneeId = assignedTo || assigned_to;
+    const isAssignment = assigneeId && assigneeId !== userId;
 
-    const taskData = {
-      userId,
-      title: title.trim(),
-      description: description || '',
-      priority: priority || 'medium',
-      category: category || 'General',
-      tags: tags || [],
-      estimatedMinutes: estimatedMinutes || 60,
-      dueDate: dueDate ? new Date(dueDate) : null,
-      assigned_to: assigneeId
-    };
+    let task;
+    
+    if (isAssignment) {
+      // Use assignment creation logic
+      task = await Task.createWithAssignment({
+        userId,
+        title: title.trim(),
+        description: description || '',
+        priority: priority || 'medium',
+        category: category || 'General',
+        tags: tags || [],
+        estimatedMinutes: estimatedMinutes || (estimatedHours ? estimatedHours * 60 : 60),
+        estimatedHours: estimatedHours || (estimatedMinutes ? estimatedMinutes / 60 : 1),
+        dueDate: dueDate ? new Date(dueDate) : null,
+        startDate: startDate ? new Date(startDate) : null,
+        assignedTo: assigneeId,
+        assignedBy: userId
+      });
+    } else {
+      // Regular task creation
+      const taskData = {
+        userId,
+        title: title.trim(),
+        description: description || '',
+        priority: priority || 'medium',
+        category: category || 'General',
+        tags: tags || [],
+        estimatedMinutes: estimatedMinutes || (estimatedHours ? estimatedHours * 60 : 60),
+        dueDate: dueDate ? new Date(dueDate) : null,
+        startDate: startDate ? new Date(startDate) : null
+      };
 
-    const task = await Task.create(taskData);
+      task = await Task.create(taskData);
+    }
 
     res.status(201).json({
       success: true,
       data: task,
-      message: 'Task created successfully'
+      message: isAssignment ? 'Task created and assigned successfully' : 'Task created successfully'
     });
   } catch (error) {
     console.error('Create task error:', error);
@@ -140,7 +167,7 @@ const updateTask = async (req, res) => {
     const { taskId } = req.params;
     const updates = req.body;
 
-    // Validate task exists
+    // Validate task exists and user has permission
     const existingTask = await Task.findById(taskId, userId);
     if (!existingTask) {
       return res.status(404).json({ 
@@ -149,9 +176,27 @@ const updateTask = async (req, res) => {
       });
     }
 
+    // Check if user can update this task
+    const canUpdate = existingTask.user_id === userId || 
+                     existingTask.assigned_to === userId || 
+                     existingTask.assigned_by === userId;
+    
+    if (!canUpdate) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Not authorized to update this task' 
+      });
+    }
+
     // Process updates
     if (updates.dueDate) {
       updates.dueDate = new Date(updates.dueDate);
+    }
+    if (updates.startDate) {
+      updates.startDate = new Date(updates.startDate);
+    }
+    if (updates.estimatedHours) {
+      updates.estimatedMinutes = updates.estimatedHours * 60;
     }
 
     if (updates.status === 'completed' && !updates.completed_at) {
@@ -232,7 +277,7 @@ const deleteTask = async (req, res) => {
   }
 };
 
-// Get task statistics
+// Get task statistics (enhanced with assignment info)
 const getTaskStatistics = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -245,11 +290,13 @@ const getTaskStatistics = async (req, res) => {
       generalStats,
       categoryStats,
       priorityStats,
+      assignmentStats,
       todayTimeStats
     ] = await Promise.all([
       Task.getStatistics(userId, start, end),
       Task.getTasksByCategory(userId),
       Task.getTasksByPriority(userId),
+      Task.getAssignmentStatistics(userId),
       TimeEntry.getTodayStats(userId)
     ]);
 
@@ -259,6 +306,7 @@ const getTaskStatistics = async (req, res) => {
         general: generalStats,
         byCategory: categoryStats,
         byPriority: priorityStats,
+        assignments: assignmentStats,
         timeToday: todayTimeStats
       }
     });
@@ -398,6 +446,31 @@ const getActiveTimer = async (req, res) => {
   }
 };
 
+// Get available users for assignment
+const getAvailableUsers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    const result = await pool.query(
+      'SELECT * FROM get_available_users($1)',
+      [userId]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows,
+      users: result.rows // Alternative property name for compatibility
+    });
+  } catch (error) {
+    console.error('Error getting available users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get available users',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getTasks,
   getTask,
@@ -410,5 +483,6 @@ module.exports = {
   getUpcomingTasks,
   startTaskTimer,
   stopTaskTimer,
-  getActiveTimer
+  getActiveTimer,
+  getAvailableUsers
 };

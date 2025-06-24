@@ -17,7 +17,8 @@ const {
   getTimeByTask,
   getDailyTimesheet,
   getRecentEntries,
-  getTimesheetReport
+  getTimesheetReport,
+  pauseTimer
 } = require('../controllers/timesheetController');
 
 // Validation middleware for time entry creation
@@ -134,6 +135,7 @@ router.delete('/:entryId', deleteTimeEntry);        // DELETE /api/timesheet/:en
 // Timer management routes
 router.post('/timer/start', validateTimerStart, startTimer); // POST /api/timesheet/timer/start
 router.post('/timer/stop', stopTimer);              // POST /api/timesheet/timer/stop
+router.post('/timer/pause', pauseTimer);            // POST /api/timesheet/timer/pause
 router.get('/timer/active', getActiveTimer);        // GET /api/timesheet/timer/active
 
 // Statistics and analytics routes

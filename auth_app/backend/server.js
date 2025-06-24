@@ -33,11 +33,20 @@ app.use(limiter);
 
 // API rate limiting for intensive operations
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Higher limit for API routes
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 5000, // Much higher limit for API routes
   skip: (req) => {
-    // Skip rate limiting for timer operations (they need frequent updates)
-    return req.path.includes('/timer/') || req.path.includes('/stats/');
+    // Skip rate limiting for timer operations and dashboard analytics endpoints
+    if (req.method === 'GET' && (
+      req.path.startsWith('/timesheet/') ||
+      req.path.startsWith('/tasks') ||
+      req.path.startsWith('/timesheet/stats/') ||
+      req.path.startsWith('/timesheet/breakdown/')
+    )) {
+      return true;
+    }
+    // Also skip for timer endpoints
+    return req.path.includes('/timer/');
   }
 });
 

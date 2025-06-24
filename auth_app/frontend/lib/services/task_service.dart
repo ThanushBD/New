@@ -1,14 +1,55 @@
 import 'package:flutter/foundation.dart';
+
+// Assuming these models exist in your project.
+import '../models/user.dart';
 import '../models/task.dart';
 import '../models/timesheet.dart';
+import '../models/task_creation_data.dart';
+
+// Assuming these services exist and are set up.
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 
+// Place TaskNotification at the top-level, outside of TaskService.
+class TaskNotification {
+  final String id;
+  final String taskId;
+  final String type;
+  final String title;
+  final String message;
+  final bool isRead;
+  final DateTime createdAt;
+
+  TaskNotification({
+    required this.id,
+    required this.taskId,
+    required this.type,
+    required this.title,
+    required this.message,
+    required this.isRead,
+    required this.createdAt,
+  });
+
+  factory TaskNotification.fromJson(Map<String, dynamic> json) {
+    return TaskNotification(
+      id: json['id'].toString(),
+      taskId: json['task_id'].toString(),
+      type: json['type'],
+      title: json['title'],
+      message: json['message'],
+      isRead: json['is_read'] ?? false,
+      createdAt: DateTime.parse(json['created_at']),
+    );
+  }
+}
+
 class TaskService {
+  // Cache keys from the original file
   static const String _tasksKey = 'cached_tasks';
   static const String _timeEntriesKey = 'cached_time_entries';
   static const String _activeTimerKey = 'cached_active_timer';
   static const String _statisticsKey = 'cached_statistics';
+  static const String _enhancedStatisticsKey = 'cached_enhanced_statistics';
 
   // ============== CACHE MANAGEMENT ==============
 
@@ -91,7 +132,6 @@ class TaskService {
     bool useCache = true,
   }) async {
     try {
-      // Try to get from API first
       final tasks = await ApiService.getTasks(
         status: status,
         priority: priority,
@@ -99,14 +139,10 @@ class TaskService {
         overdue: overdue,
         search: search,
       );
-      
-      // Cache the results
       await _cacheTasks(tasks);
       return tasks;
     } catch (e) {
       debugPrint('Error getting tasks from API: $e');
-      
-      // Fall back to cache if API fails and cache is allowed
       if (useCache) {
         final cachedTasks = await _getCachedTasks();
         if (cachedTasks != null) {
@@ -114,8 +150,6 @@ class TaskService {
           return cachedTasks;
         }
       }
-      
-      // If both API and cache fail, return empty list
       debugPrint('No tasks available (API failed, no cache)');
       return [];
     }
@@ -126,17 +160,14 @@ class TaskService {
       return await ApiService.getTask(taskId);
     } catch (e) {
       debugPrint('Error getting task: $e');
-      
-      // Try to find in cached tasks
       final cachedTasks = await _getCachedTasks();
       if (cachedTasks != null) {
         try {
           return cachedTasks.firstWhere((task) => task.id == taskId);
-        } catch (e) {
+        } catch (_) {
           debugPrint('Task not found in cache: $taskId');
         }
       }
-      
       return null;
     }
   }
@@ -149,26 +180,55 @@ class TaskService {
         priority: task.priority.toString().split('.').last,
         category: task.category,
         tags: task.tags,
-        estimatedMinutes: task.estimatedMinutes,
+        estimatedHours: task.estimatedHours,
         dueDate: task.dueDate,
       );
-
-      // Refresh cached tasks
-      await getTasks(useCache: false);
-      
+      await getTasks(useCache: false); // Refresh cache
       return newTask;
     } catch (e) {
       debugPrint('Error creating task: $e');
-      
-      // Add to sync queue for offline support
       await StorageService.addToSyncQueue({
         'type': 'CREATE_TASK',
         'data': task.toJson(),
       });
-      
       throw Exception('Failed to create task: ${e.toString()}');
     }
   }
+  
+  // ============== USER & ASSIGNMENT OPERATIONS (NEW) ==============
+
+  /// Get available users for task assignment.
+  static Future<List<User>> getAvailableUsers() async {
+    try {
+      // This call is delegated to ApiService to handle the actual HTTP request.
+      return await ApiService.getAvailableUsers();
+    } catch (e) {
+      debugPrint('Error loading users: ${e.toString()}');
+      // No caching strategy defined for users, so we throw.
+      // Consider adding caching for offline use if needed.
+      throw Exception('Error loading users: ${e.toString()}');
+    }
+  }
+
+  /// Create task with assignment.
+  static Future<void> createTaskWithAssignment(TaskCreationData taskData) async {
+    try {
+      // Delegated to ApiService
+      await ApiService.createTaskWithAssignment(taskData);
+      // Refresh the main task list after creation
+      await getTasks(useCache: false);
+    } catch (e) {
+      debugPrint('Error creating task with assignment: $e');
+      // Add to sync queue for offline support, similar to the original createTask
+      await StorageService.addToSyncQueue({
+        'type': 'CREATE_TASK_WITH_ASSIGNMENT',
+        'data': taskData.toJson(),
+      });
+      throw Exception('Error creating task: ${e.toString()}');
+    }
+  }
+
+  // ============== (CONTINUED) TASK OPERATIONS ==============
 
   static Future<Task> updateTask(Task task) async {
     try {
@@ -180,23 +240,17 @@ class TaskService {
         status: task.status.toString().split('.').last,
         category: task.category,
         tags: task.tags,
-        estimatedMinutes: task.estimatedMinutes,
+        estimatedHours: task.estimatedHours,
         dueDate: task.dueDate,
       );
-
-      // Refresh cached tasks
-      await getTasks(useCache: false);
-      
+      await getTasks(useCache: false); // Refresh cache
       return updatedTask;
     } catch (e) {
       debugPrint('Error updating task: $e');
-      
-      // Add to sync queue for offline support
       await StorageService.addToSyncQueue({
         'type': 'UPDATE_TASK',
         'data': task.toJson(),
       });
-      
       throw Exception('Failed to update task: ${e.toString()}');
     }
   }
@@ -204,18 +258,13 @@ class TaskService {
   static Future<void> deleteTask(String taskId) async {
     try {
       await ApiService.deleteTask(taskId);
-      
-      // Refresh cached tasks
-      await getTasks(useCache: false);
+      await getTasks(useCache: false); // Refresh cache
     } catch (e) {
       debugPrint('Error deleting task: $e');
-      
-      // Add to sync queue for offline support
       await StorageService.addToSyncQueue({
         'type': 'DELETE_TASK',
         'data': {'taskId': taskId},
       });
-      
       throw Exception('Failed to delete task: ${e.toString()}');
     }
   }
@@ -223,10 +272,7 @@ class TaskService {
   static Future<Task> toggleTaskStatus(String taskId) async {
     try {
       final updatedTask = await ApiService.toggleTaskStatus(taskId);
-      
-      // Refresh cached tasks
-      await getTasks(useCache: false);
-      
+      await getTasks(useCache: false); // Refresh cache
       return updatedTask;
     } catch (e) {
       debugPrint('Error toggling task status: $e');
@@ -239,14 +285,11 @@ class TaskService {
       return await ApiService.getRecentTasks(limit: limit);
     } catch (e) {
       debugPrint('Error getting recent tasks: $e');
-      
-      // Fall back to cached tasks and return recent ones
       final cachedTasks = await _getCachedTasks();
       if (cachedTasks != null) {
         cachedTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         return cachedTasks.take(limit).toList();
       }
-      
       return [];
     }
   }
@@ -256,13 +299,10 @@ class TaskService {
       return await ApiService.getUpcomingTasks(days: days);
     } catch (e) {
       debugPrint('Error getting upcoming tasks: $e');
-      
-      // Fall back to cached tasks and filter upcoming ones
       final cachedTasks = await _getCachedTasks();
       if (cachedTasks != null) {
         final now = DateTime.now();
         final cutoff = now.add(Duration(days: days));
-        
         return cachedTasks.where((task) {
           return task.dueDate != null &&
                  task.status != TaskStatus.completed &&
@@ -270,7 +310,6 @@ class TaskService {
                  task.dueDate!.isBefore(cutoff);
         }).toList();
       }
-      
       return [];
     }
   }
@@ -289,36 +328,20 @@ class TaskService {
         startDate: startDate,
         endDate: endDate,
       );
-      
-      // Cache the results
       await _cacheTimeEntries(entries);
       return entries;
     } catch (e) {
       debugPrint('Error getting time entries from API: $e');
-      
-      // Fall back to cache if API fails
       if (useCache) {
         final cachedEntries = await _getCachedTimeEntries();
         if (cachedEntries != null) {
-          // Apply filters to cached data
           var filteredEntries = cachedEntries;
-          
-          if (taskId != null) {
-            filteredEntries = filteredEntries.where((e) => e.taskId == taskId).toList();
-          }
-          
-          if (startDate != null) {
-            filteredEntries = filteredEntries.where((e) => e.startTime.isAfter(startDate)).toList();
-          }
-          
-          if (endDate != null) {
-            filteredEntries = filteredEntries.where((e) => e.startTime.isBefore(endDate)).toList();
-          }
-          
+          if (taskId != null) filteredEntries = filteredEntries.where((e) => e.taskId == taskId).toList();
+          if (startDate != null) filteredEntries = filteredEntries.where((e) => e.startTime.isAfter(startDate)).toList();
+          if (endDate != null) filteredEntries = filteredEntries.where((e) => e.startTime.isBefore(endDate)).toList();
           return filteredEntries;
         }
       }
-      
       return [];
     }
   }
@@ -330,8 +353,6 @@ class TaskService {
       return activeTimer;
     } catch (e) {
       debugPrint('Error getting active timer: $e');
-      
-      // Fall back to cached active timer
       return await _getCachedActiveTimer();
     }
   }
@@ -343,8 +364,6 @@ class TaskService {
         description: 'Working on $taskTitle',
         category: category,
       );
-      
-      // Create TimeEntry from result
       final timer = TimeEntry(
         id: result['timeEntry']['id'].toString(),
         taskId: taskId,
@@ -354,7 +373,6 @@ class TaskService {
         category: category,
         isRunning: true,
       );
-      
       await _cacheActiveTimer(timer);
       return timer;
     } catch (e) {
@@ -366,11 +384,8 @@ class TaskService {
   static Future<TimeEntry?> stopTimer() async {
     try {
       final stoppedEntry = await ApiService.stopTimer();
-      await _cacheActiveTimer(null); // Clear cached active timer
-      
-      // Refresh time entries cache
+      await _cacheActiveTimer(null);
       await getTimeEntries(useCache: false);
-      
       return stoppedEntry;
     } catch (e) {
       debugPrint('Error stopping timer: $e');
@@ -378,103 +393,89 @@ class TaskService {
     }
   }
 
+  static Future<TimeEntry?> pauseTimer() async {
+    try {
+      final pausedEntry = await ApiService.pauseTimer();
+      await _cacheActiveTimer(null);
+      await getTimeEntries(useCache: false);
+      return pausedEntry;
+    } catch (e) {
+      debugPrint('Error pausing timer: $e');
+      throw Exception('Failed to pause timer: ${e.toString()}');
+    }
+  }
+
   // ============== STATISTICS AND ANALYTICS ==============
 
-  static Future<Map<String, dynamic>> getTaskStatistics() async {
+  static Future<Map<String, dynamic>> getTaskStatistics({bool useCache = true}) async {
     try {
       final stats = await ApiService.getTaskStatistics();
-      
-      // Cache statistics
       await StorageService.saveCachedData(_statisticsKey, stats);
-      
       return stats;
     } catch (e) {
       debugPrint('Error getting statistics: $e');
-      
-      // Fall back to cached statistics
-      final cachedStats = await StorageService.getCachedData(_statisticsKey);
-      if (cachedStats != null) {
-        return cachedStats;
+      if (useCache) {
+        final cachedStats = await StorageService.getCachedData(_statisticsKey);
+        if (cachedStats != null) return cachedStats;
       }
-      
-      // Return default stats if everything fails
       return {
-        'general': {
-          'total_tasks': 0,
-          'completed_tasks': 0,
-          'in_progress_tasks': 0,
-          'pending_tasks': 0,
-          'overdue_tasks': 0,
-          'completion_rate': 0,
-        },
-        'timeToday': {
-          'total_minutes': 0,
-          'session_count': 0,
-        },
+        'general': {'total_tasks': 0, 'completed_tasks': 0, 'in_progress_tasks': 0, 'pending_tasks': 0, 'overdue_tasks': 0, 'completion_rate': 0},
+        'timeToday': {'total_minutes': 0, 'session_count': 0},
       };
     }
   }
+  
+  /// Get enhanced task statistics with assignment info (NEW).
+  // static Future<Map<String, dynamic>> getEnhancedTaskStatistics() async {
+  //   try {
+  //     final stats = await ApiService.getEnhancedTaskStatistics();
+  //     // Cache the enhanced statistics
+  //     await StorageService.saveCachedData(_enhancedStatisticsKey, stats);
+  //     return stats;
+  //   } catch (e) {
+  //     debugPrint('Error loading enhanced statistics: ${e.toString()}');
+  //     // Fall back to cache
+  //     final cachedStats = await StorageService.getCachedData(_enhancedStatisticsKey);
+  //     if (cachedStats != null) {
+  //       debugPrint('Using cached enhanced statistics');
+  //       return cachedStats;
+  //     }
+  //     throw Exception('Error loading statistics: ${e.toString()}');
+  //   }
+  // }
 
   static Future<Map<String, dynamic>> getTodayStats() async {
     try {
       return await ApiService.getTodayStats();
     } catch (e) {
       debugPrint('Error getting today stats: $e');
-      return {
-        'session_count': 0,
-        'total_minutes': 0,
-        'avg_minutes': 0,
-      };
+      return {'session_count': 0, 'total_minutes': 0, 'avg_minutes': 0};
     }
   }
 
   static Future<List<DailyTimesheet>> getWeeklyTimesheet() async {
+    // This implementation remains the same.
     try {
       final weeklyStats = await ApiService.getWeeklyStats();
-      
-      // Convert to DailyTimesheet objects
       final List<DailyTimesheet> weeklySheets = [];
       for (int i = 6; i >= 0; i--) {
         final date = DateTime.now().subtract(Duration(days: i));
         final dateKey = DateTime(date.year, date.month, date.day);
-        
-        // Find stats for this date
         final dayStats = weeklyStats.firstWhere(
           (stat) => DateTime.parse(stat['date']).day == date.day,
-          orElse: () => {
-            'date': dateKey.toIso8601String(),
-            'total_minutes': 0,
-            'session_count': 0,
-          },
+          orElse: () => {'date': dateKey.toIso8601String(), 'total_minutes': 0, 'session_count': 0},
         );
-        
         final totalMinutes = (dayStats['total_minutes'] as num?)?.toInt() ?? 0;
-        final totalTime = Duration(minutes: totalMinutes);
-        
-        weeklySheets.add(DailyTimesheet(
-          date: dateKey,
-          entries: [], // We don't need individual entries for the summary
-          totalTime: totalTime,
-        ));
+        weeklySheets.add(DailyTimesheet(date: dateKey, entries: [], totalTime: Duration(minutes: totalMinutes)));
       }
-      
       return weeklySheets;
     } catch (e) {
       debugPrint('Error getting weekly timesheet: $e');
-      
-      // Return empty weekly timesheet
       final List<DailyTimesheet> weeklySheets = [];
       for (int i = 6; i >= 0; i--) {
         final date = DateTime.now().subtract(Duration(days: i));
-        final dateKey = DateTime(date.year, date.month, date.day);
-        
-        weeklySheets.add(DailyTimesheet(
-          date: dateKey,
-          entries: [],
-          totalTime: Duration.zero,
-        ));
+        weeklySheets.add(DailyTimesheet(date: DateTime(date.year, date.month, date.day), entries: [], totalTime: Duration.zero));
       }
-      
       return weeklySheets;
     }
   }
@@ -484,50 +485,40 @@ class TaskService {
       return await ApiService.getRecentTimeEntries(limit: limit);
     } catch (e) {
       debugPrint('Error getting recent time entries: $e');
-      
-      // Fall back to cached entries
       final cachedEntries = await _getCachedTimeEntries();
       if (cachedEntries != null) {
         cachedEntries.sort((a, b) => (b.endTime ?? DateTime.now()).compareTo(a.endTime ?? DateTime.now()));
         return cachedEntries.take(limit).toList();
       }
-      
       return [];
     }
   }
-
+  
   // ============== OFFLINE SYNC ==============
 
   static Future<void> syncOfflineChanges() async {
     try {
       final syncQueue = await StorageService.getSyncQueue();
-      
       for (final operation in syncQueue) {
         try {
           switch (operation['type']) {
             case 'CREATE_TASK':
-              final taskData = operation['data'];
-              final task = Task.fromJson(taskData);
-              await createTask(task);
+              await createTask(Task.fromJson(operation['data']));
               break;
-              
             case 'UPDATE_TASK':
-              final taskData = operation['data'];
-              final task = Task.fromJson(taskData);
-              await updateTask(task);
+              await updateTask(Task.fromJson(operation['data']));
               break;
-              
             case 'DELETE_TASK':
-              final taskId = operation['data']['taskId'];
-              await deleteTask(taskId);
+              await deleteTask(operation['data']['taskId']);
               break;
+            // Handle new offline operation
+            case 'CREATE_TASK_WITH_ASSIGNMENT':
+               await createTaskWithAssignment(TaskCreationData.fromJson(operation['data']));
+               break;
           }
-          
-          // Remove successful operation from queue
           await StorageService.removeFromSyncQueue(operation['id']);
         } catch (e) {
           debugPrint('Error syncing operation ${operation['id']}: $e');
-          // Keep operation in queue for later retry
         }
       }
     } catch (e) {
@@ -543,6 +534,7 @@ class TaskService {
       await StorageService.removeData('cache_$_timeEntriesKey');
       await StorageService.removeData('cache_$_activeTimerKey');
       await StorageService.removeData('cache_$_statisticsKey');
+      await StorageService.removeData('cache_$_enhancedStatisticsKey'); // Clear new cache
     } catch (e) {
       debugPrint('Error clearing cache: $e');
     }
@@ -560,15 +552,74 @@ class TaskService {
 
   static Future<void> refreshAllData() async {
     try {
-      // Refresh all cached data
       await Future.wait([
         getTasks(useCache: false),
         getTimeEntries(useCache: false),
         getActiveTimer(),
         getTaskStatistics(),
+        // getEnhancedTaskStatistics(), // Refresh new data
       ]);
     } catch (e) {
       debugPrint('Error refreshing all data: $e');
+    }
+  }
+
+  // Add mock notification methods
+  static Future<List<TaskNotification>> getNotifications() async {
+    // Return a mock list for now
+    await Future.delayed(Duration(milliseconds: 300));
+    return [
+      TaskNotification(
+        id: '1',
+        taskId: '101',
+        type: 'assignment',
+        title: 'Task Assigned',
+        message: 'You have been assigned a new task.',
+        isRead: false,
+        createdAt: DateTime.now().subtract(Duration(hours: 1)),
+      ),
+      TaskNotification(
+        id: '2',
+        taskId: '102',
+        type: 'update',
+        title: 'Task Updated',
+        message: 'A task you are assigned to was updated.',
+        isRead: true,
+        createdAt: DateTime.now().subtract(Duration(days: 1)),
+      ),
+    ];
+  }
+
+  static Future<void> markNotificationAsRead(String notificationId) async {
+    // Mock implementation: just wait
+    await Future.delayed(Duration(milliseconds: 100));
+  }
+
+  static Future<Duration> getTimeSpentForTask(String taskId) async {
+    try {
+      final breakdown = await ApiService.getTimeByTask();
+      final taskData = breakdown.firstWhere(
+        (t) => t['task_id'].toString() == taskId,
+        orElse: () => {},
+      );
+      if (taskData != null && taskData['total_minutes'] != null) {
+        final raw = taskData['total_minutes'];
+        int minutes;
+        if (raw is int) {
+          minutes = raw;
+        } else if (raw is String) {
+          minutes = int.tryParse(raw) ?? 0;
+        } else if (raw is num) {
+          minutes = raw.toInt();
+        } else {
+          minutes = 0;
+        }
+        return Duration(minutes: minutes);
+      }
+      return Duration.zero;
+    } catch (e) {
+      debugPrint('Error getting time spent for task: $e');
+      return Duration.zero;
     }
   }
 }
